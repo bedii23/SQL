@@ -1,0 +1,66 @@
+# Logistique :
+# Le stock des 5 produits les plus commandés.#
+SELECT productName, SUM(quantityOrdered), quantityInStock, orderDate
+FROM products
+JOIN orderdetails ON orderdetails.productCode = products.productCode
+JOIN orders USING(orderNumber)
+GROUP BY productName
+ORDER BY SUM(quantityOrdered) DESC LIMIT 5;
+
+#Ressources Humaines : 
+#Chaque mois, les 2 vendeurs avec le CA le plus élevé.
+
+SELECT *
+FROM (
+SELECT concat(employees.lastName,' ',employees.firstName) AS 'Best employee',YEAR(orderDate) AS Year, MONTH(orderDate) AS Month, SUM(orderdetails.priceEach * orderdetails.quantityOrdered) AS CA,
+rank() over(partition by YEAR(orderDate),MONTH(orderDate) ORDER BY SUM(orderdetails.priceEach * orderdetails.quantityOrdered) DESC) AS r
+FROM employees
+JOIN customers ON customers.salesRepEmployeeNumber=employees.employeeNumber
+JOIN orders ON orders.customerNumber = customers.customerNumber
+JOIN orderdetails ON orderdetails.orderNumber = orders.orderNumber
+GROUP BY year,month, employees.employeeNumber
+ORDER BY YEAR(orderDate) DESC, month(orderDate) DESC, SUM(orderdetails.priceEach * orderdetails.quantityOrdered) DESC
+) AS s
+WHERE s.r in (1,2);
+
+#Ventes: 
+#Le nombre de produits vendus par catégorie et par mois, avec comparaison et taux de variation par rapport au même mois de l'année précédente.
+
+SELECT products.productLine, month(orders.shippedDate) AS months,
+SUM(case when year(orders.shippedDate)=2021 then quantityOrdered end) AS QTY21,
+SUM(case when year(orders.shippedDate)=2022 then quantityOrdered end) AS QTY22,
+ROUND(((SUM(case when year(orders.shippedDate)=2022 then quantityOrdered end) - SUM(case when year(orders.shippedDate)=2021 then quantityOrdered end)) / 
+SUM(case when year(orders.shippedDate)=2021 then quantityOrdered end)) * 100, 2) AS Rate_of_Change22
+FROM orderdetails
+JOIN products USING(productCode)
+JOIN orders USING(orderNumber)
+
+GROUP BY products.productLine, months
+ORDER BY products.productLine, months, QTY21, QTY22;
+
+#Le chiffre d'affaires des commandes des deux derniers mois par pays.
+#Commandes qui n'ont pas encore été payées.
+
+SELECT country AS Pays, orderDate AS Mois, YEAR(orderDate) AS Année, SUM(orderdetails.priceEach * orderdetails.quantityOrdered) AS CA
+FROM customers
+JOIN orders USING(customerNumber)
+JOIN orderdetails USING(orderNumber)
+WHERE orders.orderDate > DATE_SUB(LAST_DAY(curdate()), INTERVAL 3 MONTH)
+GROUP BY country, Month(orderDate) DESC, YEAR(orderDate)
+ORDER BY country, Month(orderDate) DESC, YEAR(orderDate) DESC, SUM(orderdetails.priceEach * orderdetails.quantityOrdered) DESC ;
+
+WITH paid_client AS
+(
+SELECT customers.customerNumber, customerName, round(sum(amount)) as Paid
+FROM toys_and_models.payments
+inner join customers on customers.customerNumber = payments.customerNumber
+group by customerNumber)
+SELECT*, Turnover-Paid as Delta
+FROM (
+SELECT customerNumber, round(sum(quantityOrdered*priceEach)) as Turnover, Paid
+FROM orders
+JOIN orderdetails as od USING(orderNumber)
+JOIN paid_client USING(customerNumber)
+WHERE orders.status != 'cancelled'
+group by customerNumber) as Result
+ORDER BY Delta DESC
